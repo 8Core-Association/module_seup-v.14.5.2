@@ -7,18 +7,15 @@
  * Web: https://8core.hr
  * Kontakt: info@8core.hr | Tel: +385 099 851 0717
  * Sva prava pridržana. Ovaj softver je vlasnički i zabranjeno ga je
- * distribuirati ili mijenjati bez izričitog dopuštenia autora.
+ * distribuirati ili mijenjati bez izričitog dopuštenja autora.
  */
 /**
  *	\file       seup/predmet.php
  *	\ingroup    seup
- *	\brief      Predmet page
+ *	\brief      Individual predmet view with documents and details
  */
 
 // Učitaj Dolibarr okruženje
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
 $res = 0;
 if (!$res && !empty($_SERVER["CONTEXT_DOCUMENT_ROOT"])) {
     $res = @include $_SERVER["CONTEXT_DOCUMENT_ROOT"] . "/main.inc.php";
@@ -52,153 +49,50 @@ if (!$res) {
 
 // Libraries
 require_once DOL_DOCUMENT_ROOT . '/core/lib/admin.lib.php';
-require_once DOL_DOCUMENT_ROOT . '/core/lib/files.lib.php';
-require_once DOL_DOCUMENT_ROOT . '/core/lib/functions2.lib.php';
-require_once DOL_DOCUMENT_ROOT . '/core/lib/usergroups.lib.php';
+require_once DOL_DOCUMENT_ROOT . '/core/class/html.form.class.php';
 require_once DOL_DOCUMENT_ROOT . '/core/class/html.formfile.class.php';
 require_once DOL_DOCUMENT_ROOT . '/ecm/class/ecmfiles.class.php';
 
-// Lokalne klase
+// Local classes
 require_once __DIR__ . '/../class/predmet_helper.class.php';
 require_once __DIR__ . '/../class/request_handler.class.php';
-require_once __DIR__ . '/../class/cloud_helper.class.php';
+require_once __DIR__ . '/../class/omat_generator.class.php';
 
-// Postavljanje debug logova
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
-// Učitaj datoteke prijevoda
+// Load translation files
 $langs->loadLangs(array("seup@seup"));
 
-$action = GETPOST('action', 'aZ09');
-$now = dol_now();
-$max = getDolGlobalInt('MAIN_SIZE_SHORTLIST_LIMIT', 5);
-
-// Sigurnosna provjera
-$socid = GETPOST('socid', 'int');
-if (isset($user->socid) && $user->socid > 0) {
-    $action = '';
-    $socid = $user->socid;
-}
-
-// Hvatanje ID predmeta iz GET zahtjeva
+// Get predmet ID
 $caseId = GETPOST('id', 'int');
-dol_syslog("Dohvaćanje ID predmeta: $caseId", LOG_DEBUG);
-if (empty($caseId)) {
-    header('Location: ' . dol_buildpath('/custom/seup/pages/predmeti.php', 1));
+if (!$caseId) {
+    header('Location: predmeti.php');
     exit;
 }
 
-// Definiranje direktorija za učitavanje dokumenata
-$upload_dir = '';
-if ($caseId) {
-    $relative_path = Predmet_helper::getPredmetFolderPath($caseId, $db);
-    $upload_dir = DOL_DATA_ROOT . '/ecm/' . $relative_path;
+// Security check
+$socid = GETPOST('socid', 'int');
+if (isset($user->socid) && $user->socid > 0) {
+    $socid = $user->socid;
 }
-
-// Create directory if not exists using new structure
-if ($caseId && !is_dir($upload_dir)) {
-    Predmet_helper::createPredmetDirectory($caseId, $db, $conf);
-}
-
-dol_syslog("Accessing case details for ID: $caseId", LOG_DEBUG);
-$caseDetails = null;
-
-if ($caseId) {
-    // Fetch case details
-    $sql = "SELECT 
-                p.ID_predmeta,
-                CONCAT(p.klasa_br, '-', p.sadrzaj, '/', p.godina, '-', p.dosje_broj, '/', p.predmet_rbr) as klasa,
-                p.naziv_predmeta,
-                DATE_FORMAT(p.tstamp_created, '%d.%m.%Y') as datum_otvaranja,
-                u.name_ustanova,
-                k.ime_prezime,
-                ko.opis_klasifikacijske_oznake
-            FROM " . MAIN_DB_PREFIX . "a_predmet p
-            LEFT JOIN " . MAIN_DB_PREFIX . "a_oznaka_ustanove u ON p.ID_ustanove = u.ID_ustanove
-            LEFT JOIN " . MAIN_DB_PREFIX . "a_interna_oznaka_korisnika k ON p.ID_interna_oznaka_korisnika = k.ID
-            LEFT JOIN " . MAIN_DB_PREFIX . "a_klasifikacijska_oznaka ko ON p.ID_klasifikacijske_oznake = ko.ID_klasifikacijske_oznake
-            WHERE p.ID_predmeta = " . (int)$caseId;
-
-    $resql = $db->query($sql);
-    if ($resql && $db->num_rows($resql) > 0) {
-        $caseDetails = $db->fetch_object($resql);
-    }
-}
-
-// definiranje direktorija za privremene datoteke
-define('TEMP_DIR_RELATIVE', '/temp/');
-define('TEMP_DIR_FULL', DOL_DATA_ROOT . TEMP_DIR_RELATIVE);
-define('TEMP_DIR_WEB', DOL_URL_ROOT . '/documents' . TEMP_DIR_RELATIVE);
-
-// Ensure temp directory exists
-if (!file_exists(TEMP_DIR_FULL)) {
-    dol_mkdir(TEMP_DIR_FULL);
-}
-
-$form = new Form($db);
-$formfile = new FormFile($db);
-
-llxHeader("", "SEUP - Predmet", '', '', 0, 0, '', '', '', 'mod-seup page-predmet');
 
 // Handle POST requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    dol_syslog('POST request', LOG_INFO);
-
+    $action = GETPOST('action', 'alpha');
+    
     // Handle document upload
-    if (isset($_POST['action']) && GETPOST('action') === 'upload_document') {
-        // Upload to Dolibarr ECM
-        $uploadResult = Request_Handler::handleUploadDocument($db, $upload_dir, $langs, $conf, $user);
-        
-        // Only upload to Nextcloud if ECM is NOT mounted as Nextcloud external disk
-        if ($uploadResult !== false) {
-            try {
-                require_once __DIR__ . '/../class/nextcloud_api.class.php';
-                $nextcloudApi = new NextcloudAPI($db, $conf);
-                
-                // Only upload if ECM is not Nextcloud mounted
-                if (!$nextcloudApi->isECMNextcloudMounted()) {
-                    $relative_path = Predmet_helper::getPredmetFolderPath($caseId, $db);
-                    
-                    // Create folder in Nextcloud if it doesn't exist
-                    $nextcloudApi->createFolder($relative_path);
-                    
-                    // Upload file to Nextcloud
-                    $uploadedFile = $_FILES['document'];
-                    if (isset($uploadedFile['tmp_name']) && is_uploaded_file($uploadedFile['tmp_name'])) {
-                        $filename = basename($uploadedFile['name']);
-                        $nextcloudSuccess = $nextcloudApi->uploadFile(
-                            $uploadedFile['tmp_name'],
-                            $relative_path,
-                            $filename
-                        );
-                        
-                        if ($nextcloudSuccess) {
-                            dol_syslog("File successfully uploaded to Nextcloud: " . $filename, LOG_INFO);
-                        } else {
-                            dol_syslog("Failed to upload file to Nextcloud: " . $filename, LOG_WARNING);
-                        }
-                    }
-                } else {
-                    dol_syslog("ECM is Nextcloud mounted - skipping separate Nextcloud upload", LOG_INFO);
-                }
-            } catch (Exception $e) {
-                dol_syslog("Nextcloud upload error: " . $e->getMessage(), LOG_WARNING);
-            }
-        }
+    if ($action === 'upload_document') {
+        Request_Handler::handleUploadDocument($db, '', $langs, $conf, $user);
+        // Redirect to prevent form resubmission
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?id=' . $caseId);
         exit;
     }
-
+    
     // Handle document deletion
-    if (isset($_POST['action']) && GETPOST('action') === 'delete_document') {
-        // Clean all output buffers FIRST
-        while (ob_get_level() > 0) {
-            ob_end_clean();
-        }
+    if ($action === 'delete_document') {
         header('Content-Type: application/json');
+        ob_end_clean();
         
-        $filename = GETPOST('filename', 'alphanohtml');
-        $filepath = GETPOST('filepath', 'alphanohtml');
+        $filename = GETPOST('filename', 'alpha');
+        $filepath = GETPOST('filepath', 'alpha');
         
         if (empty($filename) || empty($filepath)) {
             echo json_encode(['success' => false, 'error' => 'Missing filename or filepath']);
@@ -206,119 +100,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         try {
-            $db->begin();
-            
-            // Debug info for JSON response
-            $debug_info = [
-                'looking_for_filename' => $filename,
-                'looking_for_filepath' => $filepath,
-                'rtrim_filepath' => rtrim($filepath, '/'),
-                'entity' => $conf->entity
-            ];
-            
-            // Check what's actually in the database  
-            $check_sql = "SELECT rowid, filename, filepath FROM " . MAIN_DB_PREFIX . "ecm_files 
-                         WHERE filename = '" . $db->escape($filename) . "'
-                         AND entity = " . $conf->entity;
-            $check_resql = $db->query($check_sql);
-            $found_records = [];
-            if ($check_resql) {
-                while ($check_obj = $db->fetch_object($check_resql)) {
-                    $found_records[] = [
-                        'rowid' => $check_obj->rowid,
-                        'filename' => $check_obj->filename,
-                        'filepath' => $check_obj->filepath
-                    ];
-                }
+            // Delete from filesystem
+            $full_path = DOL_DATA_ROOT . '/ecm/' . rtrim($filepath, '/') . '/' . $filename;
+            if (file_exists($full_path)) {
+                unlink($full_path);
             }
-            $debug_info['found_in_db'] = $found_records;
             
-            // Delete from ECM database first
+            // Delete from ECM database
             $sql = "DELETE FROM " . MAIN_DB_PREFIX . "ecm_files 
                     WHERE filepath = '" . $db->escape(rtrim($filepath, '/')) . "'
                     AND filename = '" . $db->escape($filename) . "'
                     AND entity = " . $conf->entity;
             
-            $debug_info['delete_sql'] = $sql;
-            
-            $db_deleted = $db->query($sql);
-            $affected_rows = $db->affected_rows($resql ?? null);
-            $debug_info['query_result'] = $db_deleted ? 'SUCCESS' : 'FAILED';
-            $debug_info['affected_rows'] = $affected_rows;
-            
-            if (!$db_deleted) {
-                $debug_info['db_error'] = $db->lasterror();
-                throw new Exception('Greška pri brisanju iz baze: ' . $db->lasterror());
+            if ($db->query($sql)) {
+                echo json_encode(['success' => true, 'message' => 'Dokument je uspješno obrisan']);
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Database error: ' . $db->lasterror()]);
             }
-            
-            if ($affected_rows == 0) {
-                $debug_info['warning'] = 'No rows affected by delete query!';
-                // Don't throw exception, just log warning since file might not be in DB
-            }
-            
-            // Delete from filesystem
-            $full_file_path = DOL_DATA_ROOT . '/ecm/' . rtrim($filepath, '/') . '/' . $filename;
-            $file_deleted = false;
-            if (file_exists($full_file_path)) {
-                $file_deleted = unlink($full_file_path);
-                if (!$file_deleted) {
-                    dol_syslog("Warning: Could not delete file from filesystem: " . $full_file_path, LOG_WARNING);
-                }
-            }
-            
-            $db->commit();
-            echo json_encode([
-                'success' => true,
-                'message' => 'Dokument je uspješno obrisan',
-                'file_deleted' => $file_deleted,
-                'db_deleted' => true,
-                'debug' => $debug_info
-            ]);
-            
         } catch (Exception $e) {
-            $db->rollback();
-            echo json_encode([
-                'success' => false, 
-                'error' => $e->getMessage(),
-                'debug' => $debug_info ?? []
-            ]);
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
         }
         exit;
     }
-    // Handle manual sync request
-    if (isset($_POST['action']) && GETPOST('action') === 'refresh_documents') {
-        // Just continue with normal page rendering to return updated HTML
-        // The JavaScript will extract the documents section from the response
-    }
-
-    // File existence check
-    if ($_SERVER['REQUEST_METHOD'] === 'GET' && GETPOST('action') === 'check_file_exists') {
-        ob_end_clean();
-        $file_path = GETPOST('file', 'alphanohtml');
-        if (strpos($file_path, TEMP_DIR_RELATIVE) !== 0) {
-            http_response_code(403);
-            echo json_encode(['error' => 'Invalid file path']);
-            exit;
-        }
-        $full_path = DOL_DATA_ROOT . $file_path;
-        $exists = file_exists($full_path);
+    
+    // Handle omat generation
+    if ($action === 'generate_omat') {
         header('Content-Type: application/json');
-        echo json_encode(['exists' => $exists, 'path' => $full_path]);
+        ob_end_clean();
+        
+        $omat_generator = new Omat_Generator($db, $conf, $user, $langs);
+        $result = $omat_generator->generateOmat($caseId, true);
+        
+        echo json_encode($result);
+        exit;
+    }
+    
+    // Handle omat preview
+    if ($action === 'preview_omat') {
+        header('Content-Type: application/json');
+        ob_end_clean();
+        
+        $omat_generator = new Omat_Generator($db, $conf, $user, $langs);
+        $result = $omat_generator->generatePreview($caseId);
+        
+        echo json_encode($result);
         exit;
     }
 }
 
-// Auto-sync Nextcloud files to ECM when page loads
-if ($caseId) {
-    $autoSyncResult = Cloud_helper::autoSyncPredmet($db, $conf, $user, $caseId);
-    if ($autoSyncResult['synced'] > 0) {
-        dol_syslog("Auto-synced " . $autoSyncResult['synced'] . " files from Nextcloud", LOG_INFO);
-    }
+// Fetch predmet details
+$sql = "SELECT 
+            p.ID_predmeta,
+            p.klasa_br,
+            p.sadrzaj,
+            p.dosje_broj,
+            p.godina,
+            p.predmet_rbr,
+            p.naziv_predmeta,
+            DATE_FORMAT(p.tstamp_created, '%d.%m.%Y') as datum_otvaranja,
+            u.name_ustanova,
+            u.code_ustanova,
+            k.ime_prezime,
+            k.rbr as korisnik_rbr,
+            k.naziv as radno_mjesto,
+            ko.opis_klasifikacijske_oznake,
+            ko.vrijeme_cuvanja
+        FROM " . MAIN_DB_PREFIX . "a_predmet p
+        LEFT JOIN " . MAIN_DB_PREFIX . "a_oznaka_ustanove u ON p.ID_ustanove = u.ID_ustanove
+        LEFT JOIN " . MAIN_DB_PREFIX . "a_interna_oznaka_korisnika k ON p.ID_interna_oznaka_korisnika = k.ID
+        LEFT JOIN " . MAIN_DB_PREFIX . "a_klasifikacijska_oznaka ko ON p.ID_klasifikacijske_oznake = ko.ID_klasifikacijske_oznake
+        WHERE p.ID_predmeta = " . (int)$caseId;
+
+$resql = $db->query($sql);
+$predmet = null;
+if ($resql && $obj = $db->fetch_object($resql)) {
+    $predmet = $obj;
+    $predmet->klasa_format = $obj->klasa_br . '-' . $obj->sadrzaj . '/' . 
+                            $obj->godina . '-' . $obj->dosje_broj . '/' . 
+                            $obj->predmet_rbr;
 }
 
-// Prikaz dokumenata na tabu 2
+if (!$predmet) {
+    header('Location: predmeti.php');
+    exit;
+}
+
+// Fetch uploaded documents
 $documentTableHTML = '';
 Predmet_helper::fetchUploadedDocuments($db, $conf, $documentTableHTML, $langs, $caseId);
+
+$form = new Form($db);
+$formfile = new FormFile($db);
+
+llxHeader("", "Predmet: " . $predmet->klasa_format, '', '', 0, 0, '', '', '', 'mod-seup page-predmet');
 
 // Modern design assets
 print '<meta name="viewport" content="width=device-width, initial-scale=1">';
@@ -330,254 +204,184 @@ print '<link href="/custom/seup/css/seup-modern.css" rel="stylesheet">';
 print '<link href="/custom/seup/css/predmet.css" rel="stylesheet">';
 print '<link href="/custom/seup/css/prilozi.css" rel="stylesheet">';
 
-// Main hero section
-print '<main class="seup-settings-hero">';
-
-// Copyright footer
-print '<footer class="seup-footer">';
-print '<div class="seup-footer-content">';
-print '<div class="seup-footer-left">';
-print '<p>Sva prava pridržana © <a href="https://8core.hr" target="_blank" rel="noopener">8Core Association</a> 2014 - ' . date('Y') . '</p>';
-print '</div>';
-print '<div class="seup-footer-right">';
-print '<p class="seup-version">SEUP v.14.0.4</p>';
-print '</div>';
-print '</div>';
-print '</footer>';
-
-// Floating background elements
-print '<div class="seup-floating-elements">';
-for ($i = 1; $i <= 5; $i++) {
-    print '<div class="seup-floating-element"></div>';
-}
-print '</div>';
-
-print '<div class="seup-settings-content">';
-
-// Header section
-if ($caseDetails) {
-    print '<div class="seup-settings-header">';
-    print '<h1 class="seup-settings-title" style="font-size: var(--text-2xl);">Klasa: ' . htmlspecialchars($caseDetails->klasa) . '</h1>';
-    print '<p class="seup-settings-subtitle">' . htmlspecialchars($caseDetails->naziv_predmeta) . '</p>';
-    print '</div>';
-} else {
-    print '<div class="seup-settings-header">';
-    print '<h1 class="seup-settings-title">Predmet</h1>';
-    print '<p class="seup-settings-subtitle">Upravljanje predmetom i povezanim dokumentima</p>';
-    print '</div>';
-}
-
-// Main content container
+// Main container
 print '<div class="seup-predmet-container">';
 
-// Tab Navigation
-print '<div class="seup-tabs">';
-print '<button class="seup-tab active" data-tab="predmet">';
-print '<i class="fas fa-folder-open"></i>Predmet';
-print '</button>';
-print '<button class="seup-tab" data-tab="dokumenti">';
-print '<i class="fas fa-file-alt"></i>Dokumenti u prilozima';
-print '</button>';
-print '<button class="seup-tab" data-tab="predpregled">';
-print '<i class="fas fa-search"></i>Predpregled';
-print '</button>';
-print '<button class="seup-tab" data-tab="statistike">';
-print '<i class="fas fa-chart-bar"></i>Statistike';
-print '</button>';
+// Case details header
+print '<div class="seup-case-details">';
+print '<div class="seup-case-header">';
+print '<div class="seup-case-icon"><i class="fas fa-folder-open"></i></div>';
+print '<div class="seup-case-title">';
+print '<h4>' . htmlspecialchars($predmet->naziv_predmeta) . '</h4>';
+print '<div class="seup-case-klasa">' . $predmet->klasa_format . '</div>';
+print '</div>';
 print '</div>';
 
-// Tab Content
+print '<div class="seup-case-grid">';
+
+print '<div class="seup-case-field">';
+print '<div class="seup-case-field-label"><i class="fas fa-building"></i>Ustanova</div>';
+print '<div class="seup-case-field-value">' . ($predmet->name_ustanova ?: 'N/A') . '</div>';
+print '</div>';
+
+print '<div class="seup-case-field">';
+print '<div class="seup-case-field-label"><i class="fas fa-user"></i>Zaposlenik</div>';
+print '<div class="seup-case-field-value">' . ($predmet->ime_prezime ?: 'N/A') . '</div>';
+print '</div>';
+
+print '<div class="seup-case-field">';
+print '<div class="seup-case-field-label"><i class="fas fa-calendar"></i>Datum Otvaranja</div>';
+print '<div class="seup-case-field-value">' . $predmet->datum_otvaranja . '</div>';
+print '</div>';
+
+print '<div class="seup-case-field">';
+print '<div class="seup-case-field-label"><i class="fas fa-clock"></i>Vrijeme Čuvanja</div>';
+$vrijeme_text = ($predmet->vrijeme_cuvanja == 0) ? 'Trajno' : $predmet->vrijeme_cuvanja . ' godina';
+print '<div class="seup-case-field-value">' . $vrijeme_text . '</div>';
+print '</div>';
+
+print '</div>'; // seup-case-grid
+print '</div>'; // seup-case-details
+
+// Tab navigation
+print '<div class="seup-tabs">';
+print '<button class="seup-tab active" data-tab="prilozi"><i class="fas fa-paperclip"></i>Prilozi</button>';
+print '<button class="seup-tab" data-tab="prepregled"><i class="fas fa-eye"></i>Prepregled</button>';
+print '<button class="seup-tab" data-tab="statistike"><i class="fas fa-chart-bar"></i>Statistike</button>';
+print '</div>';
+
+// Tab content
 print '<div class="seup-tab-content">';
 
-// Tab 1 - Predmet Details
-print '<div class="seup-tab-pane active" id="tab-predmet">';
-if ($caseDetails) {
-    print '<div class="seup-case-details">';
-    print '<div class="seup-case-header">';
-    print '<div class="seup-case-icon"><i class="fas fa-folder-open"></i></div>';
-    print '<div class="seup-case-title">';
-    print '<h4>Detalji predmeta</h4>';
-    print '<div class="seup-case-klasa">' . htmlspecialchars($caseDetails->klasa) . '</div>';
-    print '</div>';
-    print '<div class="seup-status-badge seup-status-active">';
-    print '<i class="fas fa-check-circle me-1"></i>Aktivan';
-    print '</div>';
-    print '</div>';
-    
-    print '<div class="seup-case-grid">';
-    
-    print '<div class="seup-case-field">';
-    print '<div class="seup-case-field-label"><i class="fas fa-heading"></i>Naziv predmeta</div>';
-    print '<div class="seup-case-field-value">' . htmlspecialchars($caseDetails->naziv_predmeta) . '</div>';
-    print '</div>';
-    
-    print '<div class="seup-case-field">';
-    print '<div class="seup-case-field-label"><i class="fas fa-building"></i>Ustanova</div>';
-    print '<div class="seup-case-field-value">' . htmlspecialchars($caseDetails->name_ustanova ?: 'N/A') . '</div>';
-    print '</div>';
-    
-    print '<div class="seup-case-field">';
-    print '<div class="seup-case-field-label"><i class="fas fa-user"></i>Zaposlenik</div>';
-    print '<div class="seup-case-field-value">' . htmlspecialchars($caseDetails->ime_prezime ?: 'N/A') . '</div>';
-    print '</div>';
-    
-    print '<div class="seup-case-field">';
-    print '<div class="seup-case-field-label"><i class="fas fa-calendar"></i>Datum otvaranja</div>';
-    print '<div class="seup-case-field-value">' . htmlspecialchars($caseDetails->datum_otvaranja) . '</div>';
-    print '</div>';
-    
-    if ($caseDetails->opis_klasifikacijske_oznake) {
-        print '<div class="seup-case-field" style="grid-column: 1 / -1;">';
-        print '<div class="seup-case-field-label"><i class="fas fa-info-circle"></i>Opis klasifikacije</div>';
-        print '<div class="seup-case-field-value">' . htmlspecialchars($caseDetails->opis_klasifikacijske_oznake) . '</div>';
-        print '</div>';
-    }
-    
-    print '</div>'; // seup-case-grid
-    print '</div>'; // seup-case-details
-} else {
-    print '<div class="seup-welcome-state">';
-    print '<i class="fas fa-folder-open seup-welcome-icon"></i>';
-    print '<h4 class="seup-welcome-title">Dobrodošli</h4>';
-    print '<p class="seup-welcome-description">Ovo je početna stranica. Za pregled predmeta posjetite stranicu Predmeti.</p>';
-    print '<a href="predmeti.php" class="seup-btn seup-btn-primary">';
-    print '<i class="fas fa-external-link-alt me-2"></i>Otvori Predmete';
-    print '</a>';
-    print '</div>';
-}
-print '</div>';
-
-// Tab 2 - Documents
-print '<div class="seup-tab-pane" id="tab-dokumenti">';
-print '<div class="seup-documents-header">';
-print '<h4 class="seup-documents-title"><i class="fas fa-file-alt"></i>Akti i prilozi</h4>';
-print '</div>';
+// Tab 1: Prilozi (Documents)
+print '<div class="seup-tab-pane active" id="prilozi">';
 
 // Upload section
 print '<div class="seup-upload-section">';
-print '<div class="seup-upload-icon"><i class="fas fa-cloud-upload-alt"></i></div>';
-print '<div class="seup-upload-text">Kliknite za dodavanje novog dokumenta</div>';
-print '<button type="button" id="uploadTrigger" class="seup-btn seup-btn-primary">';
-print '<i class="fas fa-upload me-2"></i>Dodaj dokument';
+print '<i class="fas fa-cloud-upload-alt seup-upload-icon"></i>';
+print '<p class="seup-upload-text">Dodajte novi dokument u predmet</p>';
+print '<form method="post" enctype="multipart/form-data" id="uploadForm">';
+print '<input type="hidden" name="action" value="upload_document">';
+print '<input type="hidden" name="case_id" value="' . $caseId . '">';
+print '<input type="file" name="document" id="documentFile" accept=".pdf,.docx,.xlsx,.doc,.xls,.jpg,.jpeg,.png,.odt" style="display: none;">';
+print '<button type="button" class="seup-btn seup-btn-primary" id="selectFileBtn">';
+print '<i class="fas fa-plus me-2"></i>Odaberi datoteku';
 print '</button>';
-print '<input type="file" id="documentInput" style="display: none;">';
+print '<button type="submit" class="seup-btn seup-btn-success" id="uploadBtn" style="display: none;">';
+print '<i class="fas fa-upload me-2"></i>Učitaj dokument';
+print '</button>';
+print '</form>';
 print '<div class="seup-upload-progress" id="uploadProgress">';
-print '<div class="seup-progress-bar">';
-print '<div class="seup-progress-fill" id="progressFill"></div>';
-print '</div>';
-print '<div class="seup-progress-text" id="progressText">Uploading...</div>';
+print '<div class="seup-progress-bar"><div class="seup-progress-fill" id="progressFill"></div></div>';
+print '<div class="seup-progress-text" id="progressText">Učitavanje...</div>';
 print '</div>';
 print '</div>';
 
-// Nextcloud sync section
-if (Cloud_helper::isNextcloudConfigured()) {
-    $syncStatus = Cloud_helper::getSyncStatus($db, $conf, $caseId);
-    
-    // Nextcloud sync is now handled automatically in admin settings
-}
-
-// Documents display
-if (strpos($documentTableHTML, 'NoDocumentsFound') !== false || strpos($documentTableHTML, 'alert-info') !== false) {
-    print '<div class="seup-no-documents">';
-    print '<i class="fas fa-file-alt seup-no-documents-icon"></i>';
-    print '<h5 class="seup-no-documents-title">Nema uploadanih dokumenata</h5>';
-    print '<p class="seup-no-documents-description">Dodajte prvi dokument za ovaj predmet</p>';
-    print '</div>';
-} else {
-    // Convert the existing table HTML to modern design
-    $modernTableHTML = str_replace(
-        ['table table-sm table-bordered', 'btn btn-outline-primary btn-sm'],
-        ['seup-documents-table', 'seup-btn-download'],
-        $documentTableHTML
-    );
-    print $modernTableHTML;
-}
-
-print '<div class="seup-action-buttons">';
-print '<button type="button" class="seup-btn seup-btn-secondary">';
-print '<i class="fas fa-search me-2"></i>Pretraži dokumente';
-print '</button>';
-print '<button type="button" class="seup-btn seup-btn-secondary">';
-print '<i class="fas fa-sort me-2"></i>Sortiraj';
-print '</button>';
-print '</div>';
+// Documents list
+print '<div class="seup-documents-header">';
+print '<h5 class="seup-documents-title"><i class="fas fa-paperclip"></i>Dokumenti u Prilozima</h5>';
 print '</div>';
 
-// Tab 3 - Preview
-print '<div class="seup-tab-pane" id="tab-predpregled">';
+print $documentTableHTML;
+
+print '</div>'; // Tab 1
+
+// Tab 2: Prepregled
+print '<div class="seup-tab-pane" id="prepregled">';
 print '<div class="seup-preview-container">';
-print '<i class="fas fa-file-pdf seup-preview-icon"></i>';
-print '<h4 class="seup-preview-title">Predpregled omota spisa</h4>';
-print '<p class="seup-preview-description">Generirajte PDF pregled s listom svih priloga</p>';
+print '<i class="fas fa-file-alt seup-preview-icon"></i>';
+print '<h4 class="seup-preview-title">Omat Spisa</h4>';
+print '<p class="seup-preview-description">Generirajte ili pregledajte A3 omat spisa s osnovnim informacijama i popisom privitaka</p>';
+
 print '<div class="seup-action-buttons">';
-print '<button type="button" class="seup-btn seup-btn-primary" data-action="generate_pdf">';
+print '<button type="button" class="seup-btn seup-btn-primary" id="generateOmatBtn">';
 print '<i class="fas fa-file-pdf me-2"></i>Kreiraj PDF';
 print '</button>';
-print '<button type="button" class="seup-btn seup-btn-secondary">';
+print '<button type="button" class="seup-btn seup-btn-secondary" id="printOmatBtn">';
 print '<i class="fas fa-print me-2"></i>Ispis';
 print '</button>';
-print '<button type="button" class="seup-btn seup-btn-secondary">';
-print '<i class="fas fa-share me-2"></i>Dijeli';
+print '<button type="button" class="seup-btn seup-btn-success" id="previewOmatBtn">';
+print '<i class="fas fa-eye me-2"></i>Prepregled';
 print '</button>';
 print '</div>';
-print '</div>';
-print '</div>';
 
-// Tab 4 - Statistics
-print '<div class="seup-tab-pane" id="tab-statistike">';
+print '</div>';
+print '</div>'; // Tab 2
+
+// Tab 3: Statistike
+print '<div class="seup-tab-pane" id="statistike">';
 print '<div class="seup-stats-container">';
-print '<h4 class="seup-documents-title"><i class="fas fa-chart-bar"></i>Statistički podaci</h4>';
+print '<h5><i class="fas fa-chart-bar"></i>Statistike Predmeta</h5>';
 print '<div class="seup-stats-grid">';
+
+// Count documents
+$doc_count = 0;
+$sql = "SELECT COUNT(*) as count FROM " . MAIN_DB_PREFIX . "ecm_files 
+        WHERE filepath LIKE '%predmet_" . $caseId . "%' OR filepath LIKE '%/" . $caseId . "/%'
+        AND entity = " . $conf->entity;
+$resql = $db->query($sql);
+if ($resql && $obj = $db->fetch_object($resql)) {
+    $doc_count = $obj->count;
+}
 
 print '<div class="seup-stat-card">';
 print '<i class="fas fa-file-alt seup-stat-icon"></i>';
-print '<div class="seup-stat-number" id="stat-documents">0</div>';
+print '<div class="seup-stat-number">' . $doc_count . '</div>';
 print '<div class="seup-stat-label">Dokumenata</div>';
 print '</div>';
 
 print '<div class="seup-stat-card">';
+print '<i class="fas fa-calendar seup-stat-icon"></i>';
+print '<div class="seup-stat-number">' . $predmet->datum_otvaranja . '</div>';
+print '<div class="seup-stat-label">Datum Otvaranja</div>';
+print '</div>';
+
+print '<div class="seup-stat-card">';
 print '<i class="fas fa-clock seup-stat-icon"></i>';
-print '<div class="seup-stat-number" id="stat-days">0</div>';
-print '<div class="seup-stat-label">Dana otvoreno</div>';
+print '<div class="seup-stat-number">' . $vrijeme_text . '</div>';
+print '<div class="seup-stat-label">Vrijeme Čuvanja</div>';
 print '</div>';
 
 print '<div class="seup-stat-card">';
 print '<i class="fas fa-user seup-stat-icon"></i>';
-print '<div class="seup-stat-number">1</div>';
-print '<div class="seup-stat-label">Zaposlenik</div>';
-print '</div>';
-
-print '<div class="seup-stat-card">';
-print '<i class="fas fa-eye seup-stat-icon"></i>';
-print '<div class="seup-stat-number" id="stat-views">0</div>';
-print '<div class="seup-stat-label">Pregleda</div>';
+print '<div class="seup-stat-number">' . ($predmet->korisnik_rbr ?: 'N/A') . '</div>';
+print '<div class="seup-stat-label">Oznaka Korisnika</div>';
 print '</div>';
 
 print '</div>'; // seup-stats-grid
-
-print '<div class="seup-action-buttons">';
-print '<button type="button" class="seup-btn seup-btn-secondary">';
-print '<i class="fas fa-download me-2"></i>Izvoz statistika';
-print '</button>';
-print '<button type="button" class="seup-btn seup-btn-secondary">';
-print '<i class="fas fa-chart-line me-2"></i>Detaljni izvještaj';
-print '</button>';
-print '</div>';
-print '</div>';
-print '</div>';
+print '</div>'; // seup-stats-container
+print '</div>'; // Tab 3
 
 print '</div>'; // seup-tab-content
 print '</div>'; // seup-predmet-container
 
-print '</div>'; // seup-settings-content
-print '</main>';
+// Omat Preview Modal
+print '<div class="seup-modal" id="omatPreviewModal">';
+print '<div class="seup-modal-content" style="max-width: 800px; max-height: 90vh;">';
+print '<div class="seup-modal-header">';
+print '<h5 class="seup-modal-title"><i class="fas fa-eye me-2"></i>Prepregled Omata Spisa</h5>';
+print '<button type="button" class="seup-modal-close" id="closeOmatModal">&times;</button>';
+print '</div>';
+print '<div class="seup-modal-body" style="max-height: 70vh; overflow-y: auto;">';
+print '<div id="omatPreviewContent">';
+print '<div class="seup-loading-message"><i class="fas fa-spinner fa-spin"></i> Učitavam prepregled...</div>';
+print '</div>';
+print '</div>';
+print '<div class="seup-modal-footer">';
+print '<button type="button" class="seup-btn seup-btn-secondary" id="closePreviewBtn">Zatvori</button>';
+print '<button type="button" class="seup-btn seup-btn-primary" id="generateFromPreviewBtn">';
+print '<i class="fas fa-file-pdf me-2"></i>Generiraj PDF';
+print '</button>';
+print '</div>';
+print '</div>';
+print '</div>';
 
-// Delete Confirmation Modal
-print '<div class="seup-modal" id="deleteDocumentModal">';
+// Delete Document Modal
+print '<div class="seup-modal" id="deleteDocModal">';
 print '<div class="seup-modal-content">';
 print '<div class="seup-modal-header">';
 print '<h5 class="seup-modal-title"><i class="fas fa-trash me-2"></i>Brisanje Dokumenta</h5>';
-print '<button type="button" class="seup-modal-close" id="closeDeleteDocModal">&times;</button>';
+print '<button type="button" class="seup-modal-close" id="closeDeleteModal">&times;</button>';
 print '</div>';
 print '<div class="seup-modal-body">';
 print '<div class="seup-delete-doc-info">';
@@ -585,16 +389,16 @@ print '<div class="seup-delete-doc-icon"><i class="fas fa-file-alt"></i></div>';
 print '<div class="seup-delete-doc-details">';
 print '<div class="seup-delete-doc-name" id="deleteDocName">document.pdf</div>';
 print '<div class="seup-delete-doc-warning">';
-print '<i class="fas fa-exclamation-triangle me-2"></i>';
-print '<strong>PAŽNJA:</strong> Ova akcija je nepovratna! Dokument će biti trajno obrisan.';
+print '<i class="fas fa-exclamation-triangle"></i>';
+print 'Jeste li sigurni da želite obrisati ovaj dokument? Ova akcija je nepovratna.';
 print '</div>';
 print '</div>';
 print '</div>';
 print '</div>';
 print '<div class="seup-modal-footer">';
-print '<button type="button" class="seup-btn seup-btn-secondary" id="cancelDeleteDocBtn">Odustani</button>';
-print '<button type="button" class="seup-btn seup-btn-danger" id="confirmDeleteDocBtn">';
-print '<i class="fas fa-trash me-2"></i>Obriši Dokument';
+print '<button type="button" class="seup-btn seup-btn-secondary" id="cancelDeleteBtn">Odustani</button>';
+print '<button type="button" class="seup-btn seup-btn-danger" id="confirmDeleteBtn">';
+print '<i class="fas fa-trash me-2"></i>Obriši';
 print '</button>';
 print '</div>';
 print '</div>';
@@ -604,8 +408,6 @@ print '</div>';
 print '<script src="/custom/seup/js/seup-modern.js"></script>';
 
 ?>
-
-<input type="hidden" name="token" value="<?php echo newToken(); ?>">
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {
@@ -623,412 +425,102 @@ document.addEventListener("DOMContentLoaded", function() {
             
             // Add active class to clicked tab and corresponding pane
             this.classList.add('active');
-            const targetPane = document.getElementById(`tab-${targetTab}`);
-            if (targetPane) {
-                targetPane.classList.add('active');
-            }
+            document.getElementById(targetTab).classList.add('active');
         });
     });
 
-    // Document delete functionality
-    document.addEventListener('click', function(e) {
-        if (e.target.closest('.delete-document-btn')) {
-            const btn = e.target.closest('.delete-document-btn');
-            const filename = btn.dataset.filename;
-            const filepath = btn.dataset.filepath;
-            
-            // Store data for modal
-            currentDeleteData = { filename, filepath, button: btn };
-            
-            // Update modal content
-            document.getElementById('deleteDocName').textContent = filename;
-            
-            // Show modal
-            document.getElementById('deleteDocumentModal').classList.add('show');
-        }
-    });
-    // Get elements safely
-    const uploadTrigger = document.getElementById("uploadTrigger");
-    const documentInput = document.getElementById("documentInput");
-    const pdfButton = document.querySelector("[data-action='generate_pdf']");
-    const uploadProgress = document.getElementById("uploadProgress");
-    const progressFill = document.getElementById("progressFill");
-    const progressText = document.getElementById("progressText");
+    // File upload functionality
+    const selectFileBtn = document.getElementById('selectFileBtn');
+    const documentFile = document.getElementById('documentFile');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadForm = document.getElementById('uploadForm');
+    const uploadProgress = document.getElementById('uploadProgress');
 
-    // Upload functionality
-    if (uploadTrigger && documentInput) {
-        uploadTrigger.addEventListener("click", function() {
-            documentInput.click();
+    if (selectFileBtn && documentFile) {
+        selectFileBtn.addEventListener('click', function() {
+            documentFile.click();
         });
 
-        documentInput.addEventListener("change", function(e) {
-            const allowedTypes = [
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/msword",
-                "application/vnd.ms-excel",
-                "application/octet-stream",
-                "application/zip",
-                "application/pdf",
-                "image/jpeg",
-                "image/png"
-            ];
-
-            const allowedExtensions = [
-                ".docx", ".xlsx", ".doc", ".xls",
-                ".pdf", ".jpg", ".jpeg", ".png", ".zip"
-            ];
-
+        documentFile.addEventListener('change', function() {
             if (this.files.length > 0) {
                 const file = this.files[0];
-                const extension = "." + file.name.split(".").pop().toLowerCase();
-
-                if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(extension)) {
-                    showMessage("<?php echo $langs->transnoentities('ErrorInvalidFileTypeJS'); ?>\nAllowed formats: " + allowedExtensions.join(", "), 'error');
-                    this.value = "";
-                    return;
-                }
-
-                if (file.size > 10 * 1024 * 1024) {
-                    showMessage("<?php echo $langs->transnoentities('ErrorFileTooLarge'); ?>", 'error');
-                    this.value = "";
-                    return;
-                }
-
-                // Show upload progress
-                uploadProgress.style.display = 'block';
-                progressFill.style.width = '0%';
-                progressText.textContent = 'Priprema upload...';
-
-                const formData = new FormData();
-                formData.append("document", file);
-                formData.append("token", document.querySelector("input[name='token']").value);
-                formData.append("action", "upload_document");
-                formData.append("case_id", <?php echo $caseId; ?>);
-
-                // Simulate progress
-                let progress = 0;
-                const progressInterval = setInterval(() => {
-                    progress += Math.random() * 15;
-                    if (progress > 90) progress = 90;
-                    progressFill.style.width = progress + '%';
-                    progressText.textContent = `Uploading... ${Math.round(progress)}%`;
-                }, 100);
-
-                fetch("", {
-                    method: "POST",
-                    body: formData
-                }).then(response => {
-                    clearInterval(progressInterval);
-                    progressFill.style.width = '100%';
-                    progressText.textContent = 'Upload završen!';
-                    
-                    if (response.ok) {
-                        setTimeout(() => {
-                            uploadProgress.style.display = 'none';
-                            document.getElementById("documentInput").value = "";
-                            showMessage('Dokument je uspješno prenešen!', 'success');
-                            // Auto-refresh documents list after successful upload
-                            refreshDocumentsList();
-                        }, 1000);
-                    } else {
-                        throw new Error('Upload failed');
-                    }
-                }).catch(error => {
-                    clearInterval(progressInterval);
-                    uploadProgress.style.display = 'none';
-                    console.error("Upload error:", error);
-                    showMessage('Greška pri uploadu dokumenta', 'error');
-                });
+                selectFileBtn.innerHTML = `<i class="fas fa-file me-2"></i>${file.name}`;
+                uploadBtn.style.display = 'inline-flex';
             }
         });
     }
 
-    // Nextcloud sync functionality
-    const syncBtn = document.getElementById('syncBtn');
-    const manualSyncBtn = document.getElementById('manualSyncBtn');
-    const rescanEcmBtn = document.getElementById('rescanEcmBtn');
-    const rescanEcmBtn2 = document.getElementById('rescanEcmBtn2');
-
-    // ECM sync and manual sync removed - handled automatically in admin settings
-
-    // Function to refresh documents list
-    function refreshDocumentsList() {
-        const formData = new FormData();
-        formData.append('action', 'refresh_documents');
-        formData.append('case_id', <?php echo $caseId; ?>);
-        
-        fetch('predmet.php?id=<?php echo $caseId; ?>', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.text())
-        .then(html => {
-            // Extract the documents table from the response
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const newDocumentsTab = doc.querySelector('#tab-dokumenti');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
             
-            if (newDocumentsTab) {
-                const currentTab = document.getElementById('tab-dokumenti');
-                if (currentTab) {
-                    // Find the documents display area (after upload section)
-                    const uploadSection = currentTab.querySelector('.seup-upload-section');
-                    const newUploadSection = newDocumentsTab.querySelector('.seup-upload-section');
-                    
-                    if (uploadSection && newUploadSection) {
-                        // Replace everything after upload section with new content
-                        const currentContent = uploadSection.nextElementSibling;
-                        const newContent = newUploadSection.nextElementSibling;
-                        
-                        if (currentContent && newContent) {
-                            currentContent.outerHTML = newContent.outerHTML;
-                        } else if (newContent) {
-                            // If no current content, append new content
-                            uploadSection.insertAdjacentHTML('afterend', newContent.outerHTML);
-                        }
-                        
-                        // Re-add file type icons and update stats
-                        setTimeout(() => {
-                            addFileTypeIcons();
-                            updateStatistics();
-                        }, 100);
-                    }
-                }
+            if (!documentFile.files.length) {
+                showMessage('Molimo odaberite datoteku', 'error');
+                return;
             }
-        })
-        .catch(error => {
-            console.error('Error refreshing documents:', error);
-            // Show error message but don't reload page
-            showMessage('Greška pri osvježavanju liste dokumenata', 'error');
-        });
-    }
 
-    // Enhanced refresh with visual feedback
-    function refreshDocumentsWithFeedback() {
-        // Add subtle loading indicator
-        const documentsHeader = document.querySelector('.seup-documents-header h4');
-        if (documentsHeader) {
-            const originalText = documentsHeader.innerHTML;
-            documentsHeader.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Osvježavam...';
+            // Show progress
+            uploadProgress.style.display = 'block';
+            uploadBtn.classList.add('seup-loading');
+
+            // Submit form
+            const formData = new FormData(this);
             
-            refreshDocumentsList();
-            
-            setTimeout(() => {
-                documentsHeader.innerHTML = originalText;
-            }, 2000);
-        } else {
-            refreshDocumentsList();
-        }
-    }
-
-    // Upload functionality
-    if (uploadTrigger && documentInput) {
-        uploadTrigger.addEventListener("click", function() {
-            documentInput.click();
-        });
-
-        documentInput.addEventListener("change", function(e) {
-            const allowedTypes = [
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/msword",
-                "application/vnd.ms-excel",
-                "application/octet-stream",
-                "application/zip",
-                "application/pdf",
-                "image/jpeg",
-                "image/png"
-            ];
-
-            const allowedExtensions = [
-                ".docx", ".xlsx", ".doc", ".xls",
-                ".pdf", ".jpg", ".jpeg", ".png", ".zip"
-            ];
-
-            if (this.files.length > 0) {
-                const file = this.files[0];
-                const extension = "." + file.name.split(".").pop().toLowerCase();
-
-                if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(extension)) {
-                    showMessage("<?php echo $langs->transnoentities('ErrorInvalidFileTypeJS'); ?>\nAllowed formats: " + allowedExtensions.join(", "), 'error');
-                    this.value = "";
-                    return;
-                }
-
-                if (file.size > 10 * 1024 * 1024) {
-                    showMessage("<?php echo $langs->transnoentities('ErrorFileTooLarge'); ?>", 'error');
-                    this.value = "";
-                    return;
-                }
-
-                // Show upload progress
-                uploadProgress.style.display = 'block';
-                progressFill.style.width = '0%';
-                progressText.textContent = 'Priprema upload...';
-
-                const formData = new FormData();
-                formData.append("document", file);
-                formData.append("token", document.querySelector("input[name='token']").value);
-                formData.append("action", "upload_document");
-                formData.append("case_id", <?php echo $caseId; ?>);
-
-                // Simulate progress
-                let progress = 0;
-                const progressInterval = setInterval(() => {
-                    progress += Math.random() * 15;
-                    if (progress > 90) progress = 90;
-                    progressFill.style.width = progress + '%';
-                    progressText.textContent = `Uploading... ${Math.round(progress)}%`;
-                }, 100);
-
-                fetch("", {
-                    method: "POST",
-                    body: formData
-                }).then(response => {
-                    clearInterval(progressInterval);
-                    progressFill.style.width = '100%';
-                    progressText.textContent = 'Upload završen!';
-                    
-                    if (response.ok) {
-                        setTimeout(() => {
-                            uploadProgress.style.display = 'none';
-                            document.getElementById("documentInput").value = "";
-                            showMessage('Dokument je uspješno prenešen!', 'success');
-                            // Auto-refresh documents list after successful upload
-                            refreshDocumentsList();
-                        }, 1000);
-                    } else {
-                        throw new Error('Upload failed');
-                    }
-                }).catch(error => {
-                    clearInterval(progressInterval);
-                    uploadProgress.style.display = 'none';
-                    console.error("Upload error:", error);
-                    showMessage('Greška pri uploadu dokumenta', 'error');
-                });
-            }
-        });
-    }
-
-    // Function to refresh documents list (optimized)
-    function refreshDocumentsList() {
-        const formData = new FormData();
-        formData.append('action', 'refresh_documents');
-        formData.append('case_id', <?php echo $caseId; ?>);
-        
-        fetch('predmet.php?id=<?php echo $caseId; ?>', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.text())
-        .then(html => {
-            // Extract the documents table from the response
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const newDocumentsTab = doc.querySelector('#tab-dokumenti');
-            
-            if (newDocumentsTab) {
-                const currentTab = document.getElementById('tab-dokumenti');
-                if (currentTab) {
-                    // Find the documents display area (after upload section)
-                    const uploadSection = currentTab.querySelector('.seup-upload-section');
-                    const newUploadSection = newDocumentsTab.querySelector('.seup-upload-section');
-                    
-                    if (uploadSection && newUploadSection) {
-                        // Replace everything after upload section with new content
-                        let currentElement = uploadSection.nextElementSibling;
-                        let newElement = newUploadSection.nextElementSibling;
-                        
-                        // Remove all existing content after upload section
-                        while (currentElement) {
-                            const nextElement = currentElement.nextElementSibling;
-                            currentElement.remove();
-                            currentElement = nextElement;
-                        }
-                        
-                        // Add all new content after upload section
-                        while (newElement) {
-                            const nextElement = newElement.nextElementSibling;
-                            const clonedElement = newElement.cloneNode(true);
-                            uploadSection.insertAdjacentElement('afterend', clonedElement);
-                            newElement = nextElement;
-                        }
-                        
-                        // Re-add file type icons and update stats
-                        setTimeout(() => {
-                            addFileTypeIcons();
-                        // Update statistics
-                        updateStatistics();
-                        }, 100);
-                    }
-                }
-            }
-        })
-        .catch(error => {
-            console.error('Error refreshing documents:', error);
-            // Show error message but don't reload page
-            showMessage('Greška pri osvježavanju liste dokumenata', 'error');
-        });
-    }
-
-    // Function to add file type icons to document table
-    function addFileTypeIcons() {
-        document.querySelectorAll('.seup-documents-table tbody tr').forEach(row => {
-            const nameCell = row.querySelector('td:first-child');
-            if (nameCell && !nameCell.querySelector('.seup-file-icon')) {
-                const filename = nameCell.textContent.trim();
-                const extension = filename.split('.').pop().toLowerCase();
-                
-                let iconClass = 'default';
-                let iconName = 'fa-file';
-                
-                if (['pdf'].includes(extension)) {
-                    iconClass = 'pdf';
-                    iconName = 'fa-file-pdf';
-                } else if (['doc', 'docx'].includes(extension)) {
-                    iconClass = 'doc';
-                    iconName = 'fa-file-word';
-                } else if (['xls', 'xlsx'].includes(extension)) {
-                    iconClass = 'xls';
-                    iconName = 'fa-file-excel';
-                } else if (['jpg', 'jpeg', 'png'].includes(extension)) {
-                    iconClass = 'img';
-                    iconName = 'fa-file-image';
-                }
-                
-                nameCell.innerHTML = `
-                    <div class="seup-file-icon ${iconClass}">
-                        <i class="fas ${iconName}"></i>
-                    </div>
-                    <span class="seup-document-name">${filename}</span>
-                `;
-                nameCell.style.display = 'flex';
-                nameCell.style.alignItems = 'center';
-            }
-        });
-    }
-    // PDF generation
-    if (pdfButton) {
-        pdfButton.addEventListener("click", function() {
-            this.classList.add('seup-loading');
-            
-            const generatePdfUrl = "<?php echo DOL_URL_ROOT . '/custom/seup/class/generate_pdf.php'; ?>";
-            fetch(generatePdfUrl, {
-                method: "POST"
+            fetch('', {
+                method: 'POST',
+                body: formData
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success && data.file) {
-                    window.open(data.file, "_blank");
-                    showMessage('PDF je uspješno generiran!', 'success');
+            .then(response => {
+                if (response.ok) {
+                    showMessage('Dokument je uspješno učitan', 'success');
+                    // Reload page to show new document
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
                 } else {
-                    throw new Error(data.error || "PDF generation failed.");
+                    throw new Error('Upload failed');
                 }
             })
             .catch(error => {
-                console.error("PDF generation error:", error);
-                showMessage("PDF generation failed: " + error.message, 'error');
+                showMessage('Greška pri učitavanju dokumenta', 'error');
+            })
+            .finally(() => {
+                uploadProgress.style.display = 'none';
+                uploadBtn.classList.remove('seup-loading');
+            });
+        });
+    }
+
+    // Omat generation functionality
+    const generateOmatBtn = document.getElementById('generateOmatBtn');
+    const previewOmatBtn = document.getElementById('previewOmatBtn');
+    const printOmatBtn = document.getElementById('printOmatBtn');
+
+    if (generateOmatBtn) {
+        generateOmatBtn.addEventListener('click', function() {
+            this.classList.add('seup-loading');
+            
+            const formData = new FormData();
+            formData.append('action', 'generate_omat');
+            
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    // Reload documents list to show new omat
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    showMessage('Greška pri generiranju omata: ' + data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showMessage('Došlo je do greške pri generiranju omata', 'error');
             })
             .finally(() => {
                 this.classList.remove('seup-loading');
@@ -1036,39 +528,137 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // Calculate and display statistics
-    function updateStatistics() {
-        // Count documents from actual table rows (excluding "no documents" message)
-        const documentTable = document.querySelector('.seup-documents-table tbody');
-        let docCount = 0;
-        if (documentTable) {
-            const rows = documentTable.querySelectorAll('tr');
-            // Only count if it's not the "no documents" message
-            docCount = rows.length;
-        }
-        const statDocEl = document.getElementById('stat-documents');
-        if (statDocEl) {
-            statDocEl.textContent = docCount;
-        }
-
-        // Calculate days open (if case details exist)
-        <?php if ($caseDetails): ?>
-        const openDate = new Date('<?php echo date('Y-m-d', strtotime($caseDetails->datum_otvaranja)); ?>');
-        const today = new Date();
-        const diffTime = Math.abs(today - openDate);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        const statDaysEl = document.getElementById('stat-days');
-        if (statDaysEl) {
-            statDaysEl.textContent = diffDays;
-        }
-        <?php endif; ?>
-
-        // Set views to 1 for now (you can implement real tracking later)
-        const statViewsEl = document.getElementById('stat-views');
-        if (statViewsEl) {
-            statViewsEl.textContent = '1';
-        }
+    if (previewOmatBtn) {
+        previewOmatBtn.addEventListener('click', function() {
+            openOmatPreview();
+        });
     }
+
+    if (printOmatBtn) {
+        printOmatBtn.addEventListener('click', function() {
+            window.print();
+        });
+    }
+
+    // Omat preview modal functionality
+    function openOmatPreview() {
+        const modal = document.getElementById('omatPreviewModal');
+        const content = document.getElementById('omatPreviewContent');
+        
+        modal.classList.add('show');
+        content.innerHTML = '<div class="seup-loading-message"><i class="fas fa-spinner fa-spin"></i> Učitavam prepregled...</div>';
+        
+        const formData = new FormData();
+        formData.append('action', 'preview_omat');
+        
+        fetch('', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                content.innerHTML = data.preview_html;
+            } else {
+                content.innerHTML = '<div class="seup-alert seup-alert-error">Greška pri učitavanju prepregleda: ' + data.error + '</div>';
+            }
+        })
+        .catch(error => {
+            content.innerHTML = '<div class="seup-alert seup-alert-error">Došlo je do greške pri učitavanju prepregleda</div>';
+        });
+    }
+
+    function closeOmatPreview() {
+        document.getElementById('omatPreviewModal').classList.remove('show');
+    }
+
+    // Modal event listeners
+    document.getElementById('closeOmatModal').addEventListener('click', closeOmatPreview);
+    document.getElementById('closePreviewBtn').addEventListener('click', closeOmatPreview);
+
+    document.getElementById('generateFromPreviewBtn').addEventListener('click', function() {
+        closeOmatPreview();
+        generateOmatBtn.click();
+    });
+
+    // Close modal when clicking outside
+    document.getElementById('omatPreviewModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeOmatPreview();
+        }
+    });
+
+    // Document deletion functionality
+    let currentDeleteData = null;
+
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.delete-document-btn')) {
+            const btn = e.target.closest('.delete-document-btn');
+            const filename = btn.dataset.filename;
+            const filepath = btn.dataset.filepath;
+            
+            currentDeleteData = { filename, filepath };
+            
+            // Update modal content
+            document.getElementById('deleteDocName').textContent = filename;
+            
+            // Show modal
+            document.getElementById('deleteDocModal').classList.add('show');
+        }
+    });
+
+    function closeDeleteModal() {
+        document.getElementById('deleteDocModal').classList.remove('show');
+        currentDeleteData = null;
+    }
+
+    function confirmDelete() {
+        if (!currentDeleteData) return;
+        
+        const confirmBtn = document.getElementById('confirmDeleteBtn');
+        confirmBtn.classList.add('seup-loading');
+        
+        const formData = new FormData();
+        formData.append('action', 'delete_document');
+        formData.append('filename', currentDeleteData.filename);
+        formData.append('filepath', currentDeleteData.filepath);
+        
+        fetch('', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showMessage(data.message, 'success');
+                closeDeleteModal();
+                // Reload page to update document list
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+            } else {
+                showMessage('Greška pri brisanju: ' + data.error, 'error');
+            }
+        })
+        .catch(error => {
+            showMessage('Došlo je do greške pri brisanju dokumenta', 'error');
+        })
+        .finally(() => {
+            confirmBtn.classList.remove('seup-loading');
+        });
+    }
+
+    // Delete modal event listeners
+    document.getElementById('closeDeleteModal').addEventListener('click', closeDeleteModal);
+    document.getElementById('cancelDeleteBtn').addEventListener('click', closeDeleteModal);
+    document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
+
+    // Close delete modal when clicking outside
+    document.getElementById('deleteDocModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeDeleteModal();
+        }
+    });
 
     // Toast message function
     window.showMessage = function(message, type = 'success', duration = 5000) {
@@ -1089,154 +679,181 @@ document.addEventListener("DOMContentLoaded", function() {
             messageEl.classList.remove('show');
         }, duration);
     };
-
-    // Initialize statistics
-    updateStatistics();
-
-    // Add file type icons to document table
-    addFileTypeIcons();
-
-    // Delete Document Modal Functionality
-    let currentDeleteData = null;
-
-    function closeDeleteDocModal() {
-        document.getElementById('deleteDocumentModal').classList.remove('show');
-        currentDeleteData = null;
-    }
-
-    function confirmDeleteDocument() {
-        if (!currentDeleteData) return;
-        
-        const confirmBtn = document.getElementById('confirmDeleteDocBtn');
-        confirmBtn.classList.add('seup-loading');
-        currentDeleteData.button.classList.add('seup-loading');
-        
-        const formData = new FormData();
-        formData.append('action', 'delete_document');
-        formData.append('filename', currentDeleteData.filename);
-        formData.append('filepath', currentDeleteData.filepath);
-        
-        fetch('predmet.php?id=<?php echo $caseId; ?>', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                // Remove row from table with animation
-                const row = currentDeleteData.button.closest('tr');
-                if (row) {
-                    row.style.animation = 'fadeOut 0.5s ease-out';
-                    setTimeout(() => {
-                        row.remove();
-                        updateStatistics();
-                        
-                        // Check if table is now empty
-                        const tbody = document.querySelector('.seup-documents-table tbody');
-                        if (tbody && tbody.children.length === 0) {
-                            // Replace table with "no documents" message
-                            const tableContainer = document.querySelector('.seup-documents-table').parentElement;
-                            tableContainer.innerHTML = `
-                                <div class="seup-no-documents">
-                                    <i class="fas fa-file-alt seup-no-documents-icon"></i>
-                                    <h5 class="seup-no-documents-title">Nema uploadanih dokumenata</h5>
-                                    <p class="seup-no-documents-description">Dodajte prvi dokument za ovaj predmet</p>
-                                </div>
-                            `;
-                        }
-                    }, 500);
-                }
-                
-                showMessage(data.message, 'success');
-                closeDeleteDocModal();
-                closeDeleteDocModal();
-            } else {
-                showMessage('Greška pri brisanju: ' + data.error, 'error');
-            }
-        })
-        .catch(error => {
-            // Ignore JSON parse errors - document is likely deleted successfully
-            // Check if the row still exists to determine if deletion was successful
-            const row = currentDeleteData.button.closest('tr');
-            if (row) {
-                // Assume deletion was successful and remove the row
-                row.style.animation = 'fadeOut 0.5s ease-out';
-                setTimeout(() => {
-                    row.remove();
-                    updateStatistics();
-                    
-                    // Check if table is now empty
-                    const tbody = document.querySelector('.seup-documents-table tbody');
-                    if (tbody && tbody.children.length === 0) {
-                        // Replace table with "no documents" message
-                        const tableContainer = document.querySelector('.seup-documents-table').parentElement;
-                        tableContainer.innerHTML = `
-                            <div class="seup-no-documents">
-                                <i class="fas fa-file-alt seup-no-documents-icon"></i>
-                                <h5 class="seup-no-documents-title">Nema uploadanih dokumenata</h5>
-                                <p class="seup-no-documents-description">Dodajte prvi dokument za ovaj predmet</p>
-                            </div>
-                        `;
-                    }
-                }, 500);
-                
-                showMessage('Dokument je uspješno obrisan', 'success');
-                closeDeleteDocModal();
-            } else {
-                // Only show error if row still exists (deletion actually failed)
-                console.error('Delete error:', error);
-                showMessage('Došlo je do greške pri brisanju dokumenta', 'error');
-            }
-        })
-        .finally(() => {
-            confirmBtn.classList.remove('seup-loading');
-            if (currentDeleteData && currentDeleteData.button) {
-                currentDeleteData.button.classList.remove('seup-loading');
-            }
-        });
-    }
-
-    // Delete modal event listeners
-    document.getElementById('closeDeleteDocModal').addEventListener('click', closeDeleteDocModal);
-    document.getElementById('cancelDeleteDocBtn').addEventListener('click', closeDeleteDocModal);
-    document.getElementById('confirmDeleteDocBtn').addEventListener('click', confirmDeleteDocument);
-
-    // Close modal when clicking outside
-    document.getElementById('deleteDocumentModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            closeDeleteDocModal();
-        }
-    });
-
-    // Auto-refresh documents every 30 seconds if Nextcloud is enabled
-    <?php if (Cloud_helper::isNextcloudConfigured()): ?>
-    setInterval(() => {
-        // Only refresh if user is on documents tab and page is visible
-        if (!document.hidden && document.querySelector('.seup-tab[data-tab="dokumenti"]').classList.contains('active')) {
-            refreshDocumentsList();
-        }
-    }, 30000); // 30 seconds
-    <?php endif; ?>
-});
-
-// Auto-check for file changes when tab is activated
-document.addEventListener('visibilitychange', function() {
-    if (!document.hidden) {
-        // Page became visible, check for file changes
-        const refreshBtn = document.getElementById('refreshFilesBtn');
-        if (refreshBtn && Math.random() < 0.3) { // 30% chance to auto-check
-            setTimeout(() => {
-                refreshBtn.click();
-            }, 1000);
-        }
-    }
 });
 </script>
+
+<style>
+/* Omat Preview Modal Styles */
+.seup-omat-preview {
+  font-family: var(--font-family-sans);
+}
+
+.seup-omat-page {
+  background: white;
+  border: 1px solid var(--neutral-300);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  margin-bottom: var(--space-4);
+  box-shadow: var(--shadow-sm);
+}
+
+.seup-omat-title {
+  text-align: center;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: var(--secondary-900);
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-3);
+  border-bottom: 2px solid var(--primary-500);
+}
+
+.seup-omat-section {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  background: var(--neutral-50);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--primary-500);
+}
+
+.seup-omat-section h4 {
+  font-size: var(--text-base);
+  font-weight: var(--font-bold);
+  color: var(--secondary-800);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.seup-omat-section p {
+  font-size: var(--text-base);
+  color: var(--secondary-700);
+  margin: 0;
+  line-height: var(--leading-relaxed);
+}
+
+.seup-omat-desc {
+  font-style: italic;
+  color: var(--secondary-600);
+  font-size: var(--text-sm);
+  margin-top: var(--space-1);
+}
+
+.seup-omat-meta {
+  background: var(--primary-50);
+  border: 1px solid var(--primary-200);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.seup-omat-meta p {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.seup-omat-meta p:last-child {
+  margin-bottom: 0;
+}
+
+.seup-omat-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.seup-omat-table th {
+  background: var(--primary-500);
+  color: white;
+  padding: var(--space-3);
+  text-align: left;
+  font-weight: var(--font-semibold);
+  border: 1px solid var(--primary-600);
+}
+
+.seup-omat-table td {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--neutral-300);
+  background: white;
+}
+
+.seup-omat-table tr:nth-child(even) td {
+  background: var(--neutral-25);
+}
+
+.seup-omat-empty {
+  text-align: center;
+  color: var(--secondary-500);
+  font-style: italic;
+  padding: var(--space-6);
+}
+
+.seup-loading-message {
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--primary-600);
+  font-weight: var(--font-medium);
+}
+
+/* Enhanced modal for larger content */
+#omatPreviewModal .seup-modal-content {
+  max-width: 900px;
+  width: 95%;
+}
+
+#omatPreviewModal .seup-modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+/* Print styles for omat */
+@media print {
+  .seup-omat-preview {
+    font-size: 12pt;
+    line-height: 1.4;
+  }
+  
+  .seup-omat-page {
+    page-break-after: always;
+    border: none;
+    box-shadow: none;
+    margin: 0;
+    padding: 20mm;
+  }
+  
+  .seup-omat-page:last-child {
+    page-break-after: auto;
+  }
+  
+  .seup-omat-title {
+    font-size: 18pt;
+    margin-bottom: 20mm;
+  }
+  
+  .seup-omat-section {
+    margin-bottom: 15mm;
+    background: none;
+    border: none;
+    border-left: 2pt solid black;
+    padding-left: 10mm;
+  }
+  
+  .seup-omat-section h4 {
+    font-size: 12pt;
+    margin-bottom: 5mm;
+  }
+  
+  .seup-omat-table {
+    font-size: 10pt;
+  }
+  
+  .seup-omat-table th {
+    background: #f0f0f0 !important;
+    color: black !important;
+  }
+}
+</style>
 
 <?php
 llxFooter();
