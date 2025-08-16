@@ -376,6 +376,77 @@ print '</div>';
 print '</div>';
 print '</div>';
 
+// Print Instructions Modal
+print '<div class="seup-modal" id="printInstructionsModal">';
+print '<div class="seup-modal-content" style="max-width: 600px;">';
+print '<div class="seup-modal-header">';
+print '<h5 class="seup-modal-title"><i class="fas fa-print me-2"></i>Upute za Ispis Omota Spisa</h5>';
+print '<button type="button" class="seup-modal-close" id="closePrintModal">&times;</button>';
+print '</div>';
+print '<div class="seup-modal-body">';
+print '<div class="seup-print-instructions">';
+print '<div class="seup-print-warning">';
+print '<div class="seup-warning-icon"><i class="fas fa-exclamation-triangle"></i></div>';
+print '<div class="seup-warning-content">';
+print '<h4>Važne upute za ispis</h4>';
+print '<p>Molimo pažljivo pročitajte upute prije ispisa omota spisa</p>';
+print '</div>';
+print '</div>';
+
+print '<div class="seup-print-steps">';
+print '<div class="seup-print-step">';
+print '<div class="seup-step-number">1</div>';
+print '<div class="seup-step-content">';
+print '<h5>Postavke printera</h5>';
+print '<p>Postavite printer na <strong>A3 format papira</strong> (297 x 420 mm)</p>';
+print '</div>';
+print '</div>';
+
+print '<div class="seup-print-step">';
+print '<div class="seup-step-number">2</div>';
+print '<div class="seup-step-content">';
+print '<h5>Orijentacija</h5>';
+print '<p>Odaberite <strong>Portrait</strong> (uspravnu) orijentaciju</p>';
+print '</div>';
+print '</div>';
+
+print '<div class="seup-print-step">';
+print '<div class="seup-step-number">3</div>';
+print '<div class="seup-step-content">';
+print '<h5>Margine</h5>';
+print '<p>Postavite margine na <strong>minimum</strong> ili koristite "Fit to page"</p>';
+print '</div>';
+print '</div>';
+
+print '<div class="seup-print-step">';
+print '<div class="seup-step-number">4</div>';
+print '<div class="seup-step-content">';
+print '<h5>Preklapanje</h5>';
+print '<p>Nakon ispisa, <strong>preklopite papir na pola</strong> da formirate omot</p>';
+print '</div>';
+print '</div>';
+print '</div>';
+
+print '<div class="seup-print-note">';
+print '<div class="seup-note-icon"><i class="fas fa-lightbulb"></i></div>';
+print '<div class="seup-note-content">';
+print '<h5>Napomena</h5>';
+print '<p>Omot spisa je dizajniran za A3 papir koji se preklapa na pola. ';
+print 'Stranica 1 je naslovnica, stranice 2-3 su unutarnje (popis privitaka), a stranica 4 je zadnja.</p>';
+print '</div>';
+print '</div>';
+
+print '</div>'; // seup-print-instructions
+print '</div>';
+print '<div class="seup-modal-footer">';
+print '<button type="button" class="seup-btn seup-btn-secondary" id="cancelPrintBtn">Odustani</button>';
+print '<button type="button" class="seup-btn seup-btn-primary" id="confirmPrintBtn">';
+print '<i class="fas fa-print me-2"></i>Ispiši Omot';
+print '</button>';
+print '</div>';
+print '</div>';
+print '</div>';
+
 // Delete Document Modal
 print '<div class="seup-modal" id="deleteDocModal">';
 print '<div class="seup-modal-content">';
@@ -536,9 +607,44 @@ document.addEventListener("DOMContentLoaded", function() {
 
     if (printOmotBtn) {
         printOmotBtn.addEventListener('click', function() {
-            window.print();
+            openPrintInstructionsModal();
         });
     }
+
+    // Print Instructions Modal functionality
+    function openPrintInstructionsModal() {
+        const modal = document.getElementById('printInstructionsModal');
+        modal.classList.add('show');
+    }
+
+    function closePrintInstructionsModal() {
+        const modal = document.getElementById('printInstructionsModal');
+        modal.classList.remove('show');
+    }
+
+    function confirmPrint() {
+        closePrintInstructionsModal();
+        
+        // Show loading message
+        showMessage('Priprema omot za ispis...', 'success', 2000);
+        
+        // Small delay then print
+        setTimeout(() => {
+            window.print();
+        }, 500);
+    }
+
+    // Print modal event listeners
+    document.getElementById('closePrintModal').addEventListener('click', closePrintInstructionsModal);
+    document.getElementById('cancelPrintBtn').addEventListener('click', closePrintInstructionsModal);
+    document.getElementById('confirmPrintBtn').addEventListener('click', confirmPrint);
+
+    // Close print modal when clicking outside
+    document.getElementById('printInstructionsModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closePrintInstructionsModal();
+        }
+    });
 
     // Omot preview modal functionality
     function openOmotPreview() {
