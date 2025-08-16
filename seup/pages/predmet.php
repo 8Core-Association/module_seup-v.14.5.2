@@ -124,24 +124,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     // Handle omat generation
-    if ($action === 'generate_omat') {
+    if ($action === 'generate_omot') {
         header('Content-Type: application/json');
         ob_end_clean();
         
-        $omat_generator = new Omat_Generator($db, $conf, $user, $langs);
-        $result = $omat_generator->generateOmat($caseId, true);
+        $omot_generator = new Omat_Generator($db, $conf, $user, $langs);
+        $result = $omot_generator->generateOmat($caseId, true);
         
         echo json_encode($result);
         exit;
     }
     
-    // Handle omat preview
-    if ($action === 'preview_omat') {
+    // Handle omot preview
+    if ($action === 'preview_omot') {
         header('Content-Type: application/json');
         ob_end_clean();
         
-        $omat_generator = new Omat_Generator($db, $conf, $user, $langs);
-        $result = $omat_generator->generatePreview($caseId);
+        $omot_generator = new Omat_Generator($db, $conf, $user, $langs);
+        $result = $omot_generator->generatePreview($caseId);
         
         echo json_encode($result);
         exit;
@@ -290,17 +290,17 @@ print '</div>'; // Tab 1
 print '<div class="seup-tab-pane" id="prepregled">';
 print '<div class="seup-preview-container">';
 print '<i class="fas fa-file-alt seup-preview-icon"></i>';
-print '<h4 class="seup-preview-title">Omat Spisa</h4>';
+print '<h4 class="seup-preview-title">Omot Spisa</h4>';
 print '<p class="seup-preview-description">Generirajte ili pregledajte A3 omat spisa s osnovnim informacijama i popisom privitaka</p>';
 
 print '<div class="seup-action-buttons">';
-print '<button type="button" class="seup-btn seup-btn-primary" id="generateOmatBtn">';
+print '<button type="button" class="seup-btn seup-btn-primary" id="generateOmotBtn">';
 print '<i class="fas fa-file-pdf me-2"></i>Kreiraj PDF';
 print '</button>';
-print '<button type="button" class="seup-btn seup-btn-secondary" id="printOmatBtn">';
+print '<button type="button" class="seup-btn seup-btn-secondary" id="printOmotBtn">';
 print '<i class="fas fa-print me-2"></i>Ispis';
 print '</button>';
-print '<button type="button" class="seup-btn seup-btn-success" id="previewOmatBtn">';
+print '<button type="button" class="seup-btn seup-btn-success" id="previewOmotBtn">';
 print '<i class="fas fa-eye me-2"></i>Prepregled';
 print '</button>';
 print '</div>';
@@ -355,15 +355,15 @@ print '</div>'; // Tab 3
 print '</div>'; // seup-tab-content
 print '</div>'; // seup-predmet-container
 
-// Omat Preview Modal
-print '<div class="seup-modal" id="omatPreviewModal">';
+// Omot Preview Modal
+print '<div class="seup-modal" id="omotPreviewModal">';
 print '<div class="seup-modal-content" style="max-width: 800px; max-height: 90vh;">';
 print '<div class="seup-modal-header">';
-print '<h5 class="seup-modal-title"><i class="fas fa-eye me-2"></i>Prepregled Omata Spisa</h5>';
-print '<button type="button" class="seup-modal-close" id="closeOmatModal">&times;</button>';
+print '<h5 class="seup-modal-title"><i class="fas fa-eye me-2"></i>Prepregled Omota Spisa</h5>';
+print '<button type="button" class="seup-modal-close" id="closeOmotModal">&times;</button>';
 print '</div>';
 print '<div class="seup-modal-body" style="max-height: 70vh; overflow-y: auto;">';
-print '<div id="omatPreviewContent">';
+print '<div id="omotPreviewContent">';
 print '<div class="seup-loading-message"><i class="fas fa-spinner fa-spin"></i> Učitavam prepregled...</div>';
 print '</div>';
 print '</div>';
@@ -491,17 +491,17 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // Omat generation functionality
-    const generateOmatBtn = document.getElementById('generateOmatBtn');
-    const previewOmatBtn = document.getElementById('previewOmatBtn');
-    const printOmatBtn = document.getElementById('printOmatBtn');
+    // Omot generation functionality
+    const generateOmotBtn = document.getElementById('generateOmotBtn');
+    const previewOmotBtn = document.getElementById('previewOmotBtn');
+    const printOmotBtn = document.getElementById('printOmotBtn');
 
-    if (generateOmatBtn) {
-        generateOmatBtn.addEventListener('click', function() {
+    if (generateOmotBtn) {
+        generateOmotBtn.addEventListener('click', function() {
             this.classList.add('seup-loading');
             
             const formData = new FormData();
-            formData.append('action', 'generate_omat');
+            formData.append('action', 'generate_omot');
             
             fetch('', {
                 method: 'POST',
@@ -511,16 +511,16 @@ document.addEventListener("DOMContentLoaded", function() {
             .then(data => {
                 if (data.success) {
                     showMessage(data.message, 'success');
-                    // Reload documents list to show new omat
+                    // Reload documents list to show new omot
                     setTimeout(() => {
                         window.location.reload();
                     }, 2000);
                 } else {
-                    showMessage('Greška pri generiranju omata: ' + data.error, 'error');
+                    showMessage('Greška pri generiranju omota: ' + data.error, 'error');
                 }
             })
             .catch(error => {
-                showMessage('Došlo je do greške pri generiranju omata', 'error');
+                showMessage('Došlo je do greške pri generiranju omota', 'error');
             })
             .finally(() => {
                 this.classList.remove('seup-loading');
@@ -528,28 +528,28 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    if (previewOmatBtn) {
-        previewOmatBtn.addEventListener('click', function() {
-            openOmatPreview();
+    if (previewOmotBtn) {
+        previewOmotBtn.addEventListener('click', function() {
+            openOmotPreview();
         });
     }
 
-    if (printOmatBtn) {
-        printOmatBtn.addEventListener('click', function() {
+    if (printOmotBtn) {
+        printOmotBtn.addEventListener('click', function() {
             window.print();
         });
     }
 
-    // Omat preview modal functionality
-    function openOmatPreview() {
-        const modal = document.getElementById('omatPreviewModal');
-        const content = document.getElementById('omatPreviewContent');
+    // Omot preview modal functionality
+    function openOmotPreview() {
+        const modal = document.getElementById('omotPreviewModal');
+        const content = document.getElementById('omotPreviewContent');
         
         modal.classList.add('show');
         content.innerHTML = '<div class="seup-loading-message"><i class="fas fa-spinner fa-spin"></i> Učitavam prepregled...</div>';
         
         const formData = new FormData();
-        formData.append('action', 'preview_omat');
+        formData.append('action', 'preview_omot');
         
         fetch('', {
             method: 'POST',
@@ -568,23 +568,23 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    function closeOmatPreview() {
-        document.getElementById('omatPreviewModal').classList.remove('show');
+    function closeOmotPreview() {
+        document.getElementById('omotPreviewModal').classList.remove('show');
     }
 
     // Modal event listeners
-    document.getElementById('closeOmatModal').addEventListener('click', closeOmatPreview);
-    document.getElementById('closePreviewBtn').addEventListener('click', closeOmatPreview);
+    document.getElementById('closeOmotModal').addEventListener('click', closeOmotPreview);
+    document.getElementById('closePreviewBtn').addEventListener('click', closeOmotPreview);
 
     document.getElementById('generateFromPreviewBtn').addEventListener('click', function() {
-        closeOmatPreview();
-        generateOmatBtn.click();
+        closeOmotPreview();
+        generateOmotBtn.click();
     });
 
     // Close modal when clicking outside
-    document.getElementById('omatPreviewModal').addEventListener('click', function(e) {
+    document.getElementById('omotPreviewModal').addEventListener('click', function(e) {
         if (e.target === this) {
-            closeOmatPreview();
+            closeOmotPreview();
         }
     });
 

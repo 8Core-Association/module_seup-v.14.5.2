@@ -156,58 +156,61 @@ class Omat_Generator
         // Set margins for A3
         $pdf->SetMargins(20, 20, 20);
         
+        // Set font with UTF-8 support for Croatian characters
+        $pdf->SetFont(pdf_getPDFFont($this->langs), '', 24);
+        
         // Title
-        $pdf->SetFont('', 'B', 24);
-        $pdf->Cell(0, 20, 'OMAT SPISA', 0, 1, 'C');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), 'B', 24);
+        $pdf->Cell(0, 20, $this->encodeText('OMOT SPISA'), 0, 1, 'C');
         $pdf->Ln(20);
 
         // Main information sections
-        $pdf->SetFont('', 'B', 16);
+        $pdf->SetFont(pdf_getPDFFont($this->langs), 'B', 16);
         
         // Naziv tjela
-        $pdf->Cell(0, 15, 'NAZIV TJELA:', 0, 1, 'L');
-        $pdf->SetFont('', '', 14);
-        $naziv_tjela = $predmetData->name_ustanova . ' (' . $predmetData->code_ustanova . ')';
+        $pdf->Cell(0, 15, $this->encodeText('NAZIV TIJELA:'), 0, 1, 'L');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), '', 14);
+        $naziv_tjela = $this->encodeText($predmetData->name_ustanova . ' (' . $predmetData->code_ustanova . ')');
         $pdf->Cell(0, 12, $naziv_tjela, 0, 1, 'L');
         $pdf->Ln(10);
 
         // Oznaka unutarnje ustrojstvene jedinice
-        $pdf->SetFont('', 'B', 16);
-        $pdf->Cell(0, 15, 'OZNAKA UNUTARNJE USTROJSTVENE JEDINICE:', 0, 1, 'L');
-        $pdf->SetFont('', '', 14);
-        $unutarnja_oznaka = $predmetData->ime_prezime . ' (' . $predmetData->korisnik_rbr . ') - ' . $predmetData->radno_mjesto;
+        $pdf->SetFont(pdf_getPDFFont($this->langs), 'B', 16);
+        $pdf->Cell(0, 15, $this->encodeText('OZNAKA UNUTARNJE USTROJSTVENE JEDINICE:'), 0, 1, 'L');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), '', 14);
+        $unutarnja_oznaka = $this->encodeText($predmetData->ime_prezime . ' (' . $predmetData->korisnik_rbr . ') - ' . $predmetData->radno_mjesto);
         $pdf->Cell(0, 12, $unutarnja_oznaka, 0, 1, 'L');
         $pdf->Ln(10);
 
         // Klasifikacijska oznaka
-        $pdf->SetFont('', 'B', 16);
-        $pdf->Cell(0, 15, 'KLASIFIKACIJSKA OZNAKA:', 0, 1, 'L');
-        $pdf->SetFont('', '', 14);
+        $pdf->SetFont(pdf_getPDFFont($this->langs), 'B', 16);
+        $pdf->Cell(0, 15, $this->encodeText('KLASIFIKACIJSKA OZNAKA:'), 0, 1, 'L');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), '', 14);
         $pdf->Cell(0, 12, $predmetData->klasa_format, 0, 1, 'L');
         if ($predmetData->opis_klasifikacijske_oznake) {
-            $pdf->SetFont('', 'I', 12);
-            $pdf->MultiCell(0, 8, $predmetData->opis_klasifikacijske_oznake, 0, 'L');
+            $pdf->SetFont(pdf_getPDFFont($this->langs), 'I', 12);
+            $pdf->MultiCell(0, 8, $this->encodeText($predmetData->opis_klasifikacijske_oznake), 0, 'L');
         }
         $pdf->Ln(10);
 
         // Predmet
-        $pdf->SetFont('', 'B', 16);
-        $pdf->Cell(0, 15, 'PREDMET:', 0, 1, 'L');
-        $pdf->SetFont('', '', 14);
-        $pdf->MultiCell(0, 10, $predmetData->naziv_predmeta, 0, 'L');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), 'B', 16);
+        $pdf->Cell(0, 15, $this->encodeText('PREDMET:'), 0, 1, 'L');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), '', 14);
+        $pdf->MultiCell(0, 10, $this->encodeText($predmetData->naziv_predmeta), 0, 'L');
         $pdf->Ln(10);
 
         // Datum otvaranja
-        $pdf->SetFont('', 'B', 14);
-        $pdf->Cell(0, 12, 'DATUM OTVARANJA: ' . dol_print_date($predmetData->tstamp_created, '%d.%m.%Y'), 0, 1, 'L');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), 'B', 14);
+        $pdf->Cell(0, 12, $this->encodeText('DATUM OTVARANJA: ' . dol_print_date($predmetData->tstamp_created, '%d.%m.%Y')), 0, 1, 'L');
         
         // Vrijeme čuvanja
         if ($predmetData->vrijeme_cuvanja == 0) {
-            $vrijeme_text = 'TRAJNO';
+            $vrijeme_text = $this->encodeText('TRAJNO');
         } else {
-            $vrijeme_text = $predmetData->vrijeme_cuvanja . ' GODINA';
+            $vrijeme_text = $this->encodeText($predmetData->vrijeme_cuvanja . ' GODINA');
         }
-        $pdf->Cell(0, 12, 'VRIJEME ČUVANJA: ' . $vrijeme_text, 0, 1, 'L');
+        $pdf->Cell(0, 12, $this->encodeText('VRIJEME ČUVANJA: ') . $vrijeme_text, 0, 1, 'L');
     }
 
     /**
@@ -219,24 +222,24 @@ class Omat_Generator
         $pdf->AddPage('P', array(297, 420));
         
         // Title
-        $pdf->SetFont('', 'B', 20);
-        $pdf->Cell(0, 15, 'POPIS PRIVITAKA', 0, 1, 'C');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), 'B', 20);
+        $pdf->Cell(0, 15, $this->encodeText('POPIS PRIVITAKA'), 0, 1, 'C');
         $pdf->Ln(10);
 
         if (empty($attachments)) {
-            $pdf->SetFont('', 'I', 14);
-            $pdf->Cell(0, 12, 'Nema privitaka', 0, 1, 'C');
+            $pdf->SetFont(pdf_getPDFFont($this->langs), 'I', 14);
+            $pdf->Cell(0, 12, $this->encodeText('Nema privitaka'), 0, 1, 'C');
             return;
         }
 
         // Table header
-        $pdf->SetFont('', 'B', 12);
-        $pdf->Cell(20, 10, 'Rb.', 1, 0, 'C');
-        $pdf->Cell(180, 10, 'Opis', 1, 0, 'C');
-        $pdf->Cell(50, 10, 'Datum dodavanja', 1, 1, 'C');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), 'B', 12);
+        $pdf->Cell(20, 10, $this->encodeText('Rb.'), 1, 0, 'C');
+        $pdf->Cell(180, 10, $this->encodeText('Opis'), 1, 0, 'C');
+        $pdf->Cell(50, 10, $this->encodeText('Datum dodavanja'), 1, 1, 'C');
 
         // Table content
-        $pdf->SetFont('', '', 11);
+        $pdf->SetFont(pdf_getPDFFont($this->langs), '', 11);
         $rb = 1;
         
         foreach ($attachments as $attachment) {
@@ -245,11 +248,11 @@ class Omat_Generator
                 $pdf->AddPage('P', array(297, 420));
                 
                 // Repeat header on new page
-                $pdf->SetFont('', 'B', 12);
-                $pdf->Cell(20, 10, 'Rb.', 1, 0, 'C');
-                $pdf->Cell(180, 10, 'Opis', 1, 0, 'C');
-                $pdf->Cell(50, 10, 'Datum dodavanja', 1, 1, 'C');
-                $pdf->SetFont('', '', 11);
+                $pdf->SetFont(pdf_getPDFFont($this->langs), 'B', 12);
+                $pdf->Cell(20, 10, $this->encodeText('Rb.'), 1, 0, 'C');
+                $pdf->Cell(180, 10, $this->encodeText('Opis'), 1, 0, 'C');
+                $pdf->Cell(50, 10, $this->encodeText('Datum dodavanja'), 1, 1, 'C');
+                $pdf->SetFont(pdf_getPDFFont($this->langs), '', 11);
             }
 
             $datum_formatted = dol_print_date($attachment->date_c, '%d.%m.%Y');
@@ -263,7 +266,7 @@ class Omat_Generator
             // Multi-line description if needed
             $x = $pdf->GetX();
             $y = $pdf->GetY();
-            $pdf->MultiCell(180, 8, $attachment->filename, 1, 'L');
+            $pdf->MultiCell(180, 8, $this->encodeText($attachment->filename), 1, 'L');
             $pdf->SetXY($x + 180, $y);
             
             $pdf->Cell(50, $row_height, $datum_formatted, 1, 1, 'C');
@@ -282,8 +285,31 @@ class Omat_Generator
         
         // For now, just add a small footer
         $pdf->SetY(-30);
-        $pdf->SetFont('', 'I', 10);
-        $pdf->Cell(0, 10, 'Generirano: ' . dol_print_date(dol_now(), '%d.%m.%Y %H:%M'), 0, 1, 'C');
+        $pdf->SetFont(pdf_getPDFFont($this->langs), 'I', 10);
+        $pdf->Cell(0, 10, $this->encodeText('Generirano: ' . dol_print_date(dol_now(), '%d.%m.%Y %H:%M')), 0, 1, 'C');
+    }
+
+    /**
+     * Encode text for proper Croatian character display in PDF
+     */
+    private function encodeText($text)
+    {
+        // Ensure UTF-8 encoding
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $text = mb_convert_encoding($text, 'UTF-8', 'auto');
+        }
+        
+        // Alternative: Manual character replacement if font doesn't support UTF-8
+        // Uncomment if needed:
+        /*
+        $croatian_chars = [
+            'č' => 'c', 'ć' => 'c', 'đ' => 'd', 'š' => 's', 'ž' => 'z',
+            'Č' => 'C', 'Ć' => 'C', 'Đ' => 'D', 'Š' => 'S', 'Ž' => 'Z'
+        ];
+        $text = strtr($text, $croatian_chars);
+        */
+        
+        return $text;
     }
 
     /**
@@ -309,10 +335,10 @@ class Omat_Generator
             $ecmfile = new EcmFiles($this->db);
             $ecmfile->filepath = rtrim($relative_path, '/');
             $ecmfile->filename = $filename;
-            $ecmfile->label = 'Omat spisa - ' . $filename;
+            $ecmfile->label = 'Omot spisa - ' . $filename;
             $ecmfile->entity = $this->conf->entity;
             $ecmfile->gen_or_uploaded = 'generated';
-            $ecmfile->description = 'Automatski generirani omat spisa za predmet ' . $predmet_id;
+            $ecmfile->description = 'Automatski generirani omot spisa za predmet ' . $predmet_id;
             $ecmfile->fk_user_c = $this->user->id;
             $ecmfile->fk_user_m = $this->user->id;
             $ecmfile->date_c = dol_now();
@@ -320,11 +346,11 @@ class Omat_Generator
             
             $result = $ecmfile->create($this->user);
             if ($result > 0) {
-                dol_syslog("Omat spisa saved to ECM: " . $filename, LOG_INFO);
+                dol_syslog("Omot spisa saved to ECM: " . $filename, LOG_INFO);
                 
                 return [
                     'success' => true,
-                    'message' => 'Omat spisa je uspješno kreiran i dodan u privitak',
+                    'message' => 'Omot spisa je uspješno kreiran i dodan u privitak',
                     'filename' => $filename,
                     'ecm_id' => $result,
                     'download_url' => DOL_URL_ROOT . '/document.php?modulepart=ecm&file=' . urlencode($relative_path . $filename)
@@ -334,7 +360,7 @@ class Omat_Generator
             }
 
         } catch (Exception $e) {
-            dol_syslog("Error saving omat to ECM: " . $e->getMessage(), LOG_ERR);
+            dol_syslog("Error saving omot to ECM: " . $e->getMessage(), LOG_ERR);
             return [
                 'success' => false,
                 'error' => $e->getMessage()
@@ -379,10 +405,10 @@ class Omat_Generator
         
         // Page 1 preview
         $html .= '<div class="seup-omat-page">';
-        $html .= '<h3 class="seup-omat-title">OMAT SPISA</h3>';
+        $html .= '<h3 class="seup-omat-title">OMOT SPISA</h3>';
         
         $html .= '<div class="seup-omat-section">';
-        $html .= '<h4>NAZIV TJELA:</h4>';
+        $html .= '<h4>NAZIV TIJELA:</h4>';
         $html .= '<p>' . htmlspecialchars($predmetData->name_ustanova . ' (' . $predmetData->code_ustanova . ')') . '</p>';
         $html .= '</div>';
         
@@ -452,35 +478,35 @@ class Omat_Generator
         $klasa_safe = str_replace('/', '_', $predmetData->klasa_format);
         $datum = dol_print_date(dol_now(), '%Y%m%d_%H%M%S');
         
-        return 'Omat_' . $klasa_safe . '_' . $datum . '.pdf';
+        return 'Omot_' . $klasa_safe . '_' . $datum . '.pdf';
     }
 
     /**
-     * Get omat statistics
+     * Get omot statistics
      */
-    public static function getOmatStatistics($db, $conf)
+    public static function getOmotStatistics($db, $conf)
     {
         try {
             $stats = [
-                'total_omati' => 0,
+                'total_omoti' => 0,
                 'generated_today' => 0,
                 'generated_this_month' => 0
             ];
 
-            // Count total generated omati
+            // Count total generated omoti
             $sql = "SELECT COUNT(*) as count FROM " . MAIN_DB_PREFIX . "ecm_files 
-                    WHERE filename LIKE 'Omat_%'
+                    WHERE filename LIKE 'Omot_%'
                     AND filepath LIKE 'SEUP%'
                     AND entity = " . $conf->entity;
             $resql = $db->query($sql);
             if ($resql && $obj = $db->fetch_object($resql)) {
-                $stats['total_omati'] = (int)$obj->count;
+                $stats['total_omoti'] = (int)$obj->count;
             }
 
             // Count generated today
             $today = dol_print_date(dol_now(), '%Y-%m-%d');
             $sql = "SELECT COUNT(*) as count FROM " . MAIN_DB_PREFIX . "ecm_files 
-                    WHERE filename LIKE 'Omat_%'
+                    WHERE filename LIKE 'Omot_%'
                     AND filepath LIKE 'SEUP%'
                     AND DATE(FROM_UNIXTIME(date_c)) = '" . $today . "'
                     AND entity = " . $conf->entity;
@@ -492,7 +518,7 @@ class Omat_Generator
             // Count generated this month
             $month = dol_print_date(dol_now(), '%Y-%m');
             $sql = "SELECT COUNT(*) as count FROM " . MAIN_DB_PREFIX . "ecm_files 
-                    WHERE filename LIKE 'Omat_%'
+                    WHERE filename LIKE 'Omot_%'
                     AND filepath LIKE 'SEUP%'
                     AND DATE_FORMAT(FROM_UNIXTIME(date_c), '%Y-%m') = '" . $month . "'
                     AND entity = " . $conf->entity;
@@ -504,7 +530,7 @@ class Omat_Generator
             return $stats;
 
         } catch (Exception $e) {
-            dol_syslog("Error getting omat statistics: " . $e->getMessage(), LOG_ERR);
+            dol_syslog("Error getting omot statistics: " . $e->getMessage(), LOG_ERR);
             return null;
         }
     }
